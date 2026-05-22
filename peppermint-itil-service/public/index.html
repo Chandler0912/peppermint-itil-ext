@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ITIL 工单看板</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    .sla-ok { @apply bg-green-100 text-green-800; }
+    .sla-warning { @apply bg-yellow-100 text-yellow-800 animate-pulse; }
+    .sla-breached { @apply bg-red-100 text-red-800 animate-pulse; }
+    .priority-1 { @apply bg-red-600 text-white; }
+    .priority-2 { @apply bg-orange-500 text-white; }
+    .priority-3 { @apply bg-yellow-500 text-white; }
+    .priority-4 { @apply bg-blue-500 text-white; }
+    .priority-5 { @apply bg-gray-400 text-white; }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="app" class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-900">ITIL 工单仪表盘</h1>
+        <p class="text-gray-500 mt-1" id="lastUpdate">加载中...</p>
+      </div>
+      <button onclick="refreshData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
+        🔄 刷新数据
+      </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="statsCards">
+      <div class="bg-white rounded-xl shadow-sm border p-5">
+        <div class="text-sm text-gray-500 mb-1">Incident 事故</div>
+        <div class="text-2xl font-bold" id="stat-incident">-</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-5">
+        <div class="text-sm text-gray-500 mb-1">Service Request 服务请求</div>
+        <div class="text-2xl font-bold" id="stat-service">-</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-5">
+        <div class="text-sm text-gray-500 mb-1">Problem 问题</div>
+        <div class="text-2xl font-bold" id="stat-problem">-</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-5">
+        <div class="text-sm text-gray-500 mb-1">Change 变更</div>
+        <div class="text-2xl font-bold" id="stat-change">-</div>
+      </div>
+    </div>
+
+    <!-- SLA Alerts -->
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">🚨</span>
+          <span class="font-semibold text-red-800" id="sla-breached">- 个 SLA 已超期</span>
+        </div>
+      </div>
+      <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">⚠️</span>
+          <span class="font-semibold text-yellow-800" id="sla-warning">- 个 SLA 即将到期</span>
+        </div>
+      </div>
+      <div class="bg-green-50 border border-green-200 rounded-xl p-4">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">✅</span>
+          <span class="font-semibold text-green-800" id="sla-ok">- 个 SLA 正常</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button class="filter-btn active px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white" data-filter="all">全部</button>
+      <button class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300" data-filter="INCIDENT">🔴 Incident</button>
+      <button class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300" data-filter="SERVICE_REQUEST">🛠️ Service</button>
+      <button class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300" data-filter="PROBLEM">❓ Problem</button>
+      <button class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300" data-filter="CHANGE">🔄 Change</button>
+      <button class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 hover:bg-gray-300" data-filter="ACCESS_REQUEST">🔑 Access</button>
+    </div>
+
+    <!-- Ticket Table -->
+    <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <th class="px-4 py-3">ID</th>
+              <th class="px-4 py-3">标题</th>
+              <th class="px-4 py-3">ITIL 类别</th>
+              <th class="px-4 py-3">I/U</th>
+              <th class="px-4 py-3">优先级</th>
+              <th class="px-4 py-3">状态</th>
+              <th class="px-4 py-3">SLA</th>
+              <th class="px-4 py-3">处理人</th>
+              <th class="px-4 py-3">操作</th>
+            </tr>
+          </thead>
+          <tbody id="ticketTableBody" class="divide-y divide-gray-100">
+            <tr><td colspan="9" class="px-4 py-8 text-center text-gray-400">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div id="editModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl p-6 w-full max-w-lg mx-4">
+      <h3 class="text-lg font-semibold mb-4">编辑 ITIL 字段</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ITIL 类别</label>
+          <select id="edit-category" class="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="INCIDENT">Incident 事故</option>
+            <option value="SERVICE_REQUEST">Service Request 服务请求</option>
+            <option value="PROBLEM">Problem 问题</option>
+            <option value="CHANGE">Change 变更</option>
+            <option value="ACCESS_REQUEST">Access Request 权限请求</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">影响度 (1-5)</label>
+            <input type="range" id="edit-impact" min="1" max="5" class="w-full" oninput="document.getElementById('impact-val').textContent=this.value">
+            <span class="text-xs text-gray-500" id="impact-val">3</span>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">紧急度 (1-5)</label>
+            <input type="range" id="edit-urgency" min="1" max="5" class="w-full" oninput="document.getElementById('urgency-val').textContent=this.value">
+            <span class="text-xs text-gray-500" id="urgency-val">3</span>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">配置项 (CI)</label>
+          <input type="text" id="edit-ci" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="例如: SRV-DB-01">
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button onclick="closeEdit()" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">取消</button>
+        <button onclick="saveEdit()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allTickets = [];
+    let currentFilter = 'all';
+    let editingTicketId = null;
+
+    async function refreshData() {
+      const [ticketsRes, slaRes, statsRes] = await Promise.all([
+        fetch('/api/itil/tickets').then(r => r.json()),
+        fetch('/api/itil/sla-alerts').then(r => r.json()),
+        fetch('/api/itil/stats').then(r => r.json()),
+      ]);
+
+      allTickets = ticketsRes.tickets || [];
+
+      // Stats
+      if (statsRes.success) {
+        document.getElementById('stat-incident').textContent = statsRes.byCategory?.INCIDENT || 0;
+        document.getElementById('stat-service').textContent = statsRes.byCategory?.SERVICE_REQUEST || 0;
+        document.getElementById('stat-problem').textContent = statsRes.byCategory?.PROBLEM || 0;
+        document.getElementById('stat-change').textContent = statsRes.byCategory?.CHANGE || 0;
+      }
+
+      // SLA
+      document.getElementById('sla-breached').textContent = `${slaRes.breached?.length || 0} 个 SLA 已超期`;
+      document.getElementById('sla-warning').textContent = `${slaRes.warning?.length || 0} 个 SLA 即将到期`;
+      document.getElementById('sla-ok').textContent = `${slaRes.healthy || 0} 个 SLA 正常`;
+
+      renderTickets();
+      document.getElementById('lastUpdate').textContent = `最后更新: ${new Date().toLocaleString('zh-CN')}`;
+    }
+
+    function renderTickets() {
+      const filtered = currentFilter === 'all' 
+        ? allTickets 
+        : allTickets.filter(t => t.itilCategory === currentFilter);
+
+      if (filtered.length === 0) {
+        document.getElementById('ticketTableBody').innerHTML = 
+          '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-400">暂无工单</td></tr>';
+        return;
+      }
+
+      document.getElementById('ticketTableBody').innerHTML = filtered.map(t => {
+        const prioClass = t.priorityCalc ? `priority-${t.priorityCalc}` : '';
+        const slaClass = t.slaStatus === 'breached' ? 'sla-breached' : t.slaStatus === 'warning' ? 'sla-warning' : 'sla-ok';
+        const catEmojis = { INCIDENT: '🔴', SERVICE_REQUEST: '🛠️', PROBLEM: '❓', CHANGE: '🔄', ACCESS_REQUEST: '🔑' };
+
+        return `<tr class="hover:bg-gray-50 transition ticket-row" data-category="${t.itilCategory}">
+          <td class="px-4 py-3 text-xs font-mono text-gray-500">#${t.id?.slice(0, 8)}</td>
+          <td class="px-4 py-3 font-medium text-gray-900 max-w-xs truncate">${t.title || '(无标题)'}</td>
+          <td class="px-4 py-3 text-sm">${catEmojis[t.itilCategory] || '📋'} ${t.itilCategory?.replace('_', ' ') || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-600">${t.impact || '-'}/${t.urgency || '-'}</td>
+          <td class="px-4 py-3">${t.priorityCalc ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${prioClass}">P${t.priorityCalc}</span>` : '-'}</td>
+          <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">${t.status?.replace(/_/g, ' ') || '-'}</span></td>
+          <td class="px-4 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${slaClass}">${t.remainingMinutes !== null ? formatTime(t.remainingMinutes) : '-'}</span></td>
+          <td class="px-4 py-3 text-sm text-gray-600">${t.assignedToName || '未指派'}</td>
+          <td class="px-4 py-3">
+            <button onclick="openEdit('${t.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">编辑</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function formatTime(mins) {
+      if (mins <= 0) return '已超期';
+      if (mins < 60) return `${mins} 分钟`;
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${h}h${m > 0 ? m + 'm' : ''}`;
+    }
+
+    async function openEdit(id) {
+      editingTicketId = id;
+      const t = allTickets.find(x => x.id === id);
+      document.getElementById('edit-category').value = t?.itilCategory || 'SERVICE_REQUEST';
+      document.getElementById('edit-impact').value = t?.impact || 3;
+      document.getElementById('edit-urgency').value = t?.urgency || 3;
+      document.getElementById('edit-ci').value = t?.ciName || '';
+      document.getElementById('impact-val').textContent = t?.impact || 3;
+      document.getElementById('urgency-val').textContent = t?.urgency || 3;
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeEdit() {
+      editingTicketId = null;
+      document.getElementById('editModal').classList.add('hidden');
+    }
+
+    async function saveEdit() {
+      const data = {
+        itilCategory: document.getElementById('edit-category').value,
+        impact: parseInt(document.getElementById('edit-impact').value),
+        urgency: parseInt(document.getElementById('edit-urgency').value),
+        ciName: document.getElementById('edit-ci').value || null,
+      };
+
+      await fetch(`/api/itil/ticket/${editingTicketId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      closeEdit();
+      refreshData();
+    }
+
+    // Filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.filter-btn').forEach(b => {
+          b.classList.remove('bg-blue-600', 'text-white');
+          b.classList.add('bg-gray-200');
+        });
+        this.classList.add('bg-blue-600', 'text-white');
+        this.classList.remove('bg-gray-200');
+        currentFilter = this.dataset.filter;
+        renderTickets();
+      });
+    });
+
+    // Load
+    refreshData();
+    setInterval(refreshData, 60000); // Auto refresh every minute
+  </script>
+</body>
+</html>
