@@ -57,7 +57,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ],
     navMain: [
       {
-        title: "New Issue",
+        title: t("sl_new_issue"),
         url: ``,
         icon: ListPlus,
         isActive: location.pathname === "/" ? true : false,
@@ -71,7 +71,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         initial: "h",
       },
       {
-        title: "Documents",
+        title: t("sl_documents"),
         url: `/${locale}/documents`,
         icon: FileText,
         isActive: location.pathname === "/documents" ? true : false,
@@ -79,33 +79,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         internal: true,
       },
       {
-        title: "Issues",
+        title: t("sl_issues"),
         url: `/${locale}/issues`,
         icon: SquareKanban,
         isActive: location.pathname === "/issues" ? true : false,
         initial: "t",
         items: [
           {
-            title: "Open",
+            title: t("open"),
             url: "/issues/open",
             initial: "o",
           },
           {
-            title: "Closed",
+            title: t("closed"),
             url: "/issues/closed",
             initial: "f",
           },
         ],
       },
       {
-        title: "Admin",
+        title: t("sl_admin"),
         url: "/admin",
         icon: Settings,
         isActive: true,
         initial: "a",
       },
       {
-        title: "ITIL 看板",
+        title: t("sl_itil"),
         url: "/itil",
         icon: BarChart3,
         isActive: location.pathname === "/itil" ? true : false,
