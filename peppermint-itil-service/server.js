@@ -195,6 +195,115 @@ app.get('/api/itil/stats', async (req, res) => {
   }
 });
 
+// ========== POST: AI 自动分类工单 (DeepSeek) ==========
+app.post('/api/itil/ai-classify', async (req, res) => {
+  try {
+    const { ticketId } = req.body;
+    if (!ticketId) return res.status(400).json({ success: false, error: 'ticketId required' });
+
+    const result = await pool.query(
+      `SELECT id, title, detail, email, name, "itilCategory"
+       FROM "Ticket" WHERE id = $1`,
+      [ticketId]
+    );
+    const ticket = result.rows[0];
+    if (!ticket) return res.status(404).json({ success: false, error: 'Ticket not found' });
+
+    // 提取纯文本描述（detail 是 JSON 格式的富文本）
+    let desc = '';
+    try {
+      const parsed = JSON.parse(ticket.detail || '{}');
+      if (typeof parsed === 'string') {
+        desc = parsed;
+      } else if (parsed.text) {
+        desc = parsed.text;
+      } else if (Array.isArray(parsed.content)) {
+        desc = parsed.content.map(b => b.content?.map(c => c.text || '').join(' ')).join(' ');
+      } else {
+        desc = JSON.stringify(parsed);
+      }
+    } catch { desc = ticket.detail || ''; }
+    desc = desc.replace(/<[^>]*>/g, '').trim().slice(0, 1500);
+
+    const prompt = `你是一个 ITIL 工程师。分析这个 IT 工单，返回 JSON 格式的分类。
+
+工单标题: ${ticket.title || '(空)'}
+工单描述: ${desc || '(空)'}
+提交人: ${ticket.name || ticket.email || '未知'}
+
+分析：
+1. itilCategory: INCIDENT(事故) | SERVICE_REQUEST(服务请求) | PROBLEM(问题) | CHANGE(变更) | ACCESS_REQUEST(权限请求)
+2. impact: 影响度 1-5（1=单用户, 3=部门, 5=全公司）
+3. urgency: 紧急度 1-5（1=不紧急, 3=影响工作, 5=业务中断）
+4. reason: 简短判断理由（中文，一句话）
+
+只返回 JSON：{"itilCategory":"...","impact":1-5,"urgency":1-5,"reason":"..."}`;
+
+    let classification;
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+
+    if (apiKey && apiKey !== 'sk-your-key-here') {
+      const aiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const err = await aiRes.text();
+        return res.status(502).json({ success: false, error: `DeepSeek API error: ${aiRes.status}`, detail: err });
+      }
+
+      const data = await aiRes.json();
+      classification = JSON.parse(data.choices[0].message.content);
+    } else {
+      // 无 API Key 时用简单规则兜底
+      const text = (ticket.title + ' ' + desc).toLowerCase();
+      let cat = 'SERVICE_REQUEST', imp = 2, urg = 2, reason = '未配置 API Key，使用默认分类';
+      if (/故障|报错|崩溃|宕机|打不开|不能|无法|error|crash|down/i.test(text)) { cat = 'INCIDENT'; imp = 3; urg = 3; reason = '标题含故障关键词'; }
+      if (/申请|权限|开通|账号|密码|access/i.test(text)) { cat = 'ACCESS_REQUEST'; imp = 1; urg = 1; reason = '标题含权限/申请关键词'; }
+      classification = { itilCategory: cat, impact: imp, urgency: urg, reason };
+    }
+
+    // 计算优先级
+    const imp = Math.max(1, Math.min(5, classification.impact || 2));
+    const urg = Math.max(1, Math.min(5, classification.urgency || 2));
+    const slaHours = [4, 8, 24, 48, 120];
+    const priorities = [1, 1, 2, 2, 3, 2, 2, 3, 3, 4, 2, 3, 3, 4, 4, 3, 3, 4, 4, 5, 3, 3, 4, 4, 5];
+    const idx = (imp - 1) * 5 + (urg - 1);
+    const prioCalc = priorities[Math.min(idx, 24)];
+
+    await pool.query(
+      `UPDATE "Ticket" SET
+        "itilCategory" = $2, impact = $3, urgency = $4, "priorityCalc" = $5,
+        "slaDeadline" = NOW() + ($6 * interval '1 hour'), "firstResponse" = COALESCE("firstResponse", NOW())
+       WHERE id = $1`,
+      [ticketId, classification.itilCategory, imp, urg, prioCalc, slaHours[prioCalc - 1]]
+    );
+
+    res.json({
+      success: true,
+      ticketId,
+      classification: {
+        itilCategory: classification.itilCategory,
+        impact: imp,
+        urgency: urg,
+        priorityCalc: prioCalc,
+        slaHours: slaHours[prioCalc - 1],
+        reason: classification.reason,
+      },
+    });
+  } catch (e) {
+    console.error('AI classify error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ========== 静态文件（前端面板） ==========
 app.use(express.static(__dirname + '/public'));
 
