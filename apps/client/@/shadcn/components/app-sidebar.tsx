@@ -2,11 +2,13 @@ import {
   BarChart3,
   Building,
   FileText,
+  Globe,
   ListPlus,
   Settings,
   SquareKanban
 } from "lucide-react";
 import * as React from "react";
+import { getCookie } from "cookies-next";
 
 import { NavMain } from "@/shadcn/components/nav-main";
 import {
@@ -34,6 +36,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const { t, lang } = useTranslation("peppermint");
   const sidebar = useSidebar();
+
+  // 语言切换
+  const [currentLang, setCurrentLang] = useState(lang || 'zh-CN');
+
+  function changeLanguage(newLocale) {
+    setCurrentLang(newLocale);
+    // Next.js i18n: 改变 locale 并跳转
+    location.push({ pathname: location.pathname }, location.asPath, { locale: newLocale });
+    // 保存到后端用户偏好
+    const token = getCookie("session") || getCookie("access_token");
+    if (token && user) {
+      fetch(`/api/v1/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: user.id, name: user.name, email: user.email, language: newLocale }),
+      }).catch(() => {});
+    }
+  }
 
   if (!user) {
     location.push("/auth/login");
@@ -82,31 +102,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: t("sl_issues"),
         url: `/${locale}/issues`,
         icon: SquareKanban,
-        isActive: location.pathname === "/issues" ? true : false,
+        isActive: location.pathname.includes("/issues") ? true : false,
         initial: "t",
         items: [
           {
             title: t("open"),
-            url: "/issues/open",
+            url: `/${locale}/issues/open`,
             initial: "o",
           },
           {
             title: t("closed"),
-            url: "/issues/closed",
+            url: `/${locale}/issues/closed`,
             initial: "f",
           },
         ],
       },
       {
         title: t("sl_admin"),
-        url: "/admin",
+        url: `/${locale}/admin`,
         icon: Settings,
-        isActive: true,
+        isActive: false,
         initial: "a",
       },
       {
         title: t("sl_itil"),
-        url: "/itil",
+        url: `/${locale}/itil`,
         icon: BarChart3,
         isActive: location.pathname === "/itil" ? true : false,
         initial: "i",
@@ -136,22 +156,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           location.push("/");
           break;
         case "d":
-          location.push("/documents");
+          location.push(`/${locale}/documents`);
           break;
         case "t":
-          location.push("/issues");
+          location.push(`/${locale}/issues`);
           break;
         case "a":
-          location.push("/admin");
+          location.push(`/${locale}/admin`);
           break;
         case "i":
-          location.push("/itil");
+          location.push(`/${locale}/itil`);
           break;
         case "o":
-          location.push("/issues/open");
+          location.push(`/${locale}/issues/open`);
           break;
         case "f":
-          location.push("/issues/closed");
+          location.push(`/${locale}/issues/closed`);
           break;
         case "[":
           sidebar.toggleSidebar();
@@ -197,7 +217,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={data.navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <div className="hidden sm:block ">
+        <div className="px-2">
+          <div className="flex items-center gap-2 text-sm text-sidebar-foreground/70 px-2 py-1">
+            <Globe className="size-4" />
+            <select
+              value={currentLang}
+              onChange={(e) => changeLanguage(e.target.value)}
+              className="bg-transparent border-none text-sm outline-none cursor-pointer w-full"
+            >
+              <option value="zh-CN">简体中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <div className="hidden sm:block mt-1">
           <ThemeSettings />
         </div>
       </SidebarFooter>
